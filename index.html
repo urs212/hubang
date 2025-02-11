@@ -3,75 +3,156 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>카메라 선택 및 비디오 스트리밍</title>
+    <title>CCTV 차량 감지 시스템</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            background-color: black;
-            color: white;
+            background: black;
+            color: lime;
+            text-align: center;
+        }
+        #container {
+            position: relative;
+            width: 80%;
+            margin: auto;
+            max-width: 800px;
         }
         video {
             width: 100%;
-            height: auto;
-            display: block;
+            border: 5px solid lime;
         }
-        select {
+        .overlay {
             position: absolute;
+            color: lime;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 5px;
+            font-size: 18px;
+            border-radius: 5px;
+        }
+        #time {
             top: 10px;
             left: 10px;
-            background-color: rgba(0, 0, 0, 0.5);
-            color: white;
-            padding: 10px;
-            border-radius: 5px;
+        }
+        #speed {
+            bottom: 10px;
+            left: 10px;
+        }
+        #alert {
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 24px;
+            font-weight: bold;
+            background: red;
+            padding: 10px 20px;
+            display: none;
         }
     </style>
 </head>
 <body>
-    <select id="cameraSelect" onchange="startCamera()">
-        <option value="">카메라 선택</option>
-    </select>
-    <video id="video" autoplay></video>
+
+    <h1>CCTV 차량 감지 시스템</h1>
+    
+    <div id="container">
+        <video id="video" autoplay></video>
+        <div id="time" class="overlay"></div>
+        <div id="speed" class="overlay">📡 속도: 위치 정보 가져오는 중...</div>
+        <div id="alert" class="overlay">🚨 차량 감지됨! 🚨</div>
+    </div>
 
     <script>
-        // 카메라 장치 목록을 나열하는 함수
-        async function listDevices() {
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            const cameraSelect = document.getElementById('cameraSelect');
-            devices.forEach(device => {
-                if (device.kind === 'videoinput') {  // 비디오 입력 장치만 필터링
-                    const option = document.createElement('option');
-                    option.value = device.deviceId;
-                    option.textContent = device.label || '카메라 ' + (cameraSelect.options.length);
-                    cameraSelect.appendChild(option);
-                }
-            });
-        }
+        let model;
+        let currentStream;
 
-        // 선택된 카메라로 비디오 스트리밍 시작
+        // 카메라 시작 (자동으로 첫 번째 USB 카메라 사용)
         async function startCamera() {
-            const cameraSelect = document.getElementById('cameraSelect');
-            const video = document.getElementById('video');
-            const deviceId = cameraSelect.value;
-
-            if (deviceId) {
-                // 선택된 카메라 장치로 스트리밍
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({
-                        video: { deviceId: { exact: deviceId } }
-                    });
-                    video.srcObject = stream;
-                } catch (err) {
-                    console.error('카메라를 시작할 수 없습니다:', err);
+            try {
+                if (currentStream) {
+                    currentStream.getTracks().forEach(track => track.stop());
                 }
+
+                // 장치 목록 불러오기
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(device => device.kind === 'videoinput');
+
+                if (videoDevices.length === 0) {
+                    alert("USB 카메라를 찾을 수 없습니다.");
+                    return;
+                }
+
+                // 첫 번째 비디오 장치(대부분 USB 카메라)를 선택
+                const constraints = { video: { deviceId: { exact: videoDevices[0].deviceId } } };
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                currentStream = stream;
+
+                const videoElement = document.getElementById('video');
+                videoElement.srcObject = stream;
+                videoElement.onloadeddata = () => detectObjects();
+            } catch (err) {
+                alert("카메라 접근 불가: " + err);
             }
         }
 
-        // 페이지 로드 시 카메라 장치 목록 가져오기
-        window.onload = () => {
-            listDevices();
-        };
+        // 날짜 및 시간 업데이트
+        function updateDateTime() {
+            const now = new Date();
+            document.getElementById('time').innerText = `📅 ${now.toLocaleDateString()} ${now.toLocaleTimeString()}`;
+        }
+
+        // GPS 기반 속도 업데이트
+        function updateSpeed(position) {
+            if (position.coords.speed !== null) {
+                const speedKmh = (position.coords.speed * 3.6).toFixed(1); // m/s → km/h 변환
+                document.getElementById('speed').innerText = `🚗 속도: ${speedKmh} km/h`;
+            } else {
+                document.getElementById('speed').innerText = "📡 속도: 측정 불가";
+            }
+        }
+
+        // GPS 위치 정보 가져오기
+        function getGPS() {
+            if ("geolocation" in navigator) {
+                navigator.geolocation.watchPosition(updateSpeed, error => {
+                    document.getElementById('speed').innerText = "📡 GPS 오류";
+                }, { enableHighAccuracy: true });
+            } else {
+                document.getElementById('speed').innerText = "📡 GPS 지원 안됨";
+            }
+        }
+
+        // 객체 감지 (TensorFlow COCO-SSD)
+        async function detectObjects() {
+            if (!model) {
+                model = await cocoSsd.load();
+            }
+
+            const videoElement = document.getElementById('video');
+            const predictions = await model.detect(videoElement);
+
+            let vehicleDetected = false;
+
+            predictions.forEach(prediction => {
+                const detectedObject = prediction.class;
+                if (["car", "bus", "motorcycle"].includes(detectedObject)) {
+                    vehicleDetected = true;
+                }
+            });
+
+            const alertBox = document.getElementById('alert');
+            if (vehicleDetected) {
+                alertBox.style.display = "block";
+                setTimeout(() => { alertBox.style.display = "none"; }, 3000);
+            }
+
+            requestAnimationFrame(detectObjects);
+        }
+
+        setInterval(updateDateTime, 1000);  // 1초마다 시간 갱신
+        setTimeout(getGPS, 500);           // 0.5초 후 GPS 시작
+        startCamera();                     // 자동으로 첫 번째 USB 카메라 시작
     </script>
+
 </body>
 </html>
