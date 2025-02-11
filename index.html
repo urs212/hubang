@@ -49,11 +49,18 @@
             padding: 10px 20px;
             display: none;
         }
+        #cameraSelect {
+            margin-top: 10px;
+            padding: 5px;
+            font-size: 16px;
+        }
     </style>
 </head>
 <body>
 
     <h1>CCTV 차량 감지 시스템</h1>
+
+    <select id="cameraSelect"></select>
     
     <div id="container">
         <video id="video" autoplay></video>
@@ -64,16 +71,43 @@
 
     <script>
         let model;
+        let currentStream;
 
-        // 카메라 시작
-        async function startCamera() {
+        // 카메라 시작 (사용자 선택)
+        async function startCamera(deviceId = null) {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                if (currentStream) {
+                    currentStream.getTracks().forEach(track => track.stop());
+                }
+
+                const constraints = { video: deviceId ? { deviceId: { exact: deviceId } } : true };
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                currentStream = stream;
+
                 const videoElement = document.getElementById('video');
                 videoElement.srcObject = stream;
                 videoElement.onloadeddata = () => detectObjects();
             } catch (err) {
                 alert("카메라 접근 불가: " + err);
+            }
+        }
+
+        // 카메라 목록 불러오기
+        async function loadCameraOptions() {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoDevices = devices.filter(device => device.kind === 'videoinput');
+
+            const selectElement = document.getElementById('cameraSelect');
+            selectElement.innerHTML = videoDevices.map((device, index) => 
+                `<option value="${device.deviceId}">${device.label || `카메라 ${index + 1}`}</option>`
+            ).join('');
+
+            selectElement.addEventListener('change', (event) => {
+                startCamera(event.target.value);
+            });
+
+            if (videoDevices.length > 0) {
+                startCamera(videoDevices[0].deviceId);
             }
         }
 
@@ -133,7 +167,7 @@
 
         setInterval(updateDateTime, 1000);  // 1초마다 시간 갱신
         setTimeout(getGPS, 500);           // 0.5초 후 GPS 시작
-        startCamera();                      // 카메라 실행
+        loadCameraOptions();               // 카메라 목록 불러오기
 
     </script>
 
