@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>USB 카메라 및 GPS 속도</title>
+    <title>카메라 선택 및 비디오 스트리밍</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -17,90 +17,60 @@
             height: auto;
             display: block;
         }
-        .info {
+        select {
             position: absolute;
             top: 10px;
             left: 10px;
             background-color: rgba(0, 0, 0, 0.5);
+            color: white;
             padding: 10px;
             border-radius: 5px;
-        }
-        .alert {
-            position: absolute;
-            bottom: 10px;
-            left: 10px;
-            background-color: red;
-            color: white;
-            padding: 5px 10px;
-            border-radius: 5px;
-            display: none;
         }
     </style>
 </head>
 <body>
+    <select id="cameraSelect" onchange="startCamera()">
+        <option value="">카메라 선택</option>
+    </select>
     <video id="video" autoplay></video>
-    <div class="info">
-        <p id="time"></p>
-        <p id="date"></p>
-        <p id="speed">속도: 0 km/h</p>
-    </div>
-    <div class="alert" id="alert">차량 감지됨!</div>
 
     <script>
-        // WebRTC를 사용하여 비디오 스트림 가져오기 (USB 카메라 대체)
-        navigator.mediaDevices.getUserMedia({ video: true })
-            .then(stream => {
-                document.getElementById('video').srcObject = stream;
-            })
-            .catch(error => {
-                console.error('카메라에 접근할 수 없습니다:', error);
+        // 카메라 장치 목록을 나열하는 함수
+        async function listDevices() {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const cameraSelect = document.getElementById('cameraSelect');
+            devices.forEach(device => {
+                if (device.kind === 'videoinput') {  // 비디오 입력 장치만 필터링
+                    const option = document.createElement('option');
+                    option.value = device.deviceId;
+                    option.textContent = device.label || '카메라 ' + (cameraSelect.options.length);
+                    cameraSelect.appendChild(option);
+                }
             });
-
-        // 현재 날짜 및 시간 업데이트
-        function updateTime() {
-            const now = new Date();
-            const date = now.toLocaleDateString();
-            const time = now.toLocaleTimeString();
-            document.getElementById('date').textContent = '날짜: ' + date;
-            document.getElementById('time').textContent = '시간: ' + time;
         }
 
-        // GPS를 사용해 속도 업데이트
-        function updateSpeed() {
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(position => {
-                    const speed = position.coords.speed; // 속도 (m/s)
-                    if (speed !== null) {
-                        const speedKmh = (speed * 3.6).toFixed(1); // m/s를 km/h로 변환
-                        document.getElementById('speed').textContent = '속도: ' + speedKmh + ' km/h';
-                    }
-                }, error => {
-                    console.error('GPS 오류:', error);
-                });
-            } else {
-                console.log('GPS를 지원하지 않는 기기입니다.');
+        // 선택된 카메라로 비디오 스트리밍 시작
+        async function startCamera() {
+            const cameraSelect = document.getElementById('cameraSelect');
+            const video = document.getElementById('video');
+            const deviceId = cameraSelect.value;
+
+            if (deviceId) {
+                // 선택된 카메라 장치로 스트리밍
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        video: { deviceId: { exact: deviceId } }
+                    });
+                    video.srcObject = stream;
+                } catch (err) {
+                    console.error('카메라를 시작할 수 없습니다:', err);
+                }
             }
         }
 
-        // 차량 감지 (간단한 예시로 5초마다 감지)
-        function detectVehicle() {
-            setTimeout(() => {
-                // 차량 감지 시 알림 표시
-                document.getElementById('alert').style.display = 'block';
-                setTimeout(() => {
-                    document.getElementById('alert').style.display = 'none';
-                }, 3000); // 3초 후 알림 사라짐
-            }, 5000); // 5초마다 차량 감지
-
-            setTimeout(detectVehicle, 5000); // 주기적으로 차량 감지 시도
-        }
-
-        // 페이지가 로드되면
+        // 페이지 로드 시 카메라 장치 목록 가져오기
         window.onload = () => {
-            updateTime();
-            setInterval(updateTime, 1000); // 1초마다 시간 업데이트
-            setInterval(updateSpeed, 1000); // 1초마다 GPS 속도 업데이트
-            detectVehicle(); // 차량 감지 시작
+            listDevices();
         };
     </script>
 </body>
