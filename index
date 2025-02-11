@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CCTV 차량 감지 시스템</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: black;
+            color: lime;
+            text-align: center;
+        }
+        #container {
+            position: relative;
+            width: 80%;
+            margin: auto;
+            max-width: 800px;
+        }
+        video {
+            width: 100%;
+            border: 5px solid lime;
+        }
+        .overlay {
+            position: absolute;
+            color: lime;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 5px;
+            font-size: 18px;
+            border-radius: 5px;
+        }
+        #time {
+            top: 10px;
+            left: 10px;
+        }
+        #speed {
+            bottom: 10px;
+            left: 10px;
+        }
+        #alert {
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 24px;
+            font-weight: bold;
+            background: red;
+            padding: 10px 20px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>CCTV 차량 감지 시스템</h1>
+    
+    <div id="container">
+        <video id="video" autoplay></video>
+        <div id="time" class="overlay"></div>
+        <div id="speed" class="overlay">📡 속도: 위치 정보 가져오는 중...</div>
+        <div id="alert" class="overlay">🚨 차량 감지됨! 🚨</div>
+    </div>
+
+    <script>
+        let model;
+
+        // 카메라 시작
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                const videoElement = document.getElementById('video');
+                videoElement.srcObject = stream;
+                videoElement.onloadeddata = () => detectObjects();
+            } catch (err) {
+                alert("카메라 접근 불가: " + err);
+            }
+        }
+
+        // 날짜 및 시간 업데이트
+        function updateDateTime() {
+            const now = new Date();
+            document.getElementById('time').innerText = `📅 ${now.toLocaleDateString()} ${now.toLocaleTimeString()}`;
+        }
+
+        // GPS 기반 속도 업데이트
+        function updateSpeed(position) {
+            if (position.coords.speed !== null) {
+                const speedKmh = (position.coords.speed * 3.6).toFixed(1); // m/s → km/h 변환
+                document.getElementById('speed').innerText = `🚗 속도: ${speedKmh} km/h`;
+            } else {
+                document.getElementById('speed').innerText = "📡 속도: 측정 불가";
+            }
+        }
+
+        // GPS 위치 정보 가져오기
+        function getGPS() {
+            if ("geolocation" in navigator) {
+                navigator.geolocation.watchPosition(updateSpeed, error => {
+                    document.getElementById('speed').innerText = "📡 GPS 오류";
+                }, { enableHighAccuracy: true });
+            } else {
+                document.getElementById('speed').innerText = "📡 GPS 지원 안됨";
+            }
+        }
+
+        // 객체 감지 (TensorFlow COCO-SSD)
+        async function detectObjects() {
+            if (!model) {
+                model = await cocoSsd.load();
+            }
+
+            const videoElement = document.getElementById('video');
+            const predictions = await model.detect(videoElement);
+
+            let vehicleDetected = false;
+
+            predictions.forEach(prediction => {
+                const detectedObject = prediction.class;
+                if (["car", "bus", "motorcycle"].includes(detectedObject)) {
+                    vehicleDetected = true;
+                }
+            });
+
+            const alertBox = document.getElementById('alert');
+            if (vehicleDetected) {
+                alertBox.style.display = "block";
+                setTimeout(() => { alertBox.style.display = "none"; }, 3000);
+            }
+
+            requestAnimationFrame(detectObjects);
+        }
+
+        setInterval(updateDateTime, 1000);  // 1초마다 시간 갱신
+        setTimeout(getGPS, 500);           // 0.5초 후 GPS 시작
+        startCamera();                      // 카메라 실행
+
+    </script>
+
+</body>
+</html>
