@@ -3,173 +3,105 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CCTV 차량 감지 시스템</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    <title>USB 카메라 및 GPS 속도</title>
     <style>
         body {
             font-family: Arial, sans-serif;
-            background: black;
-            color: lime;
-            text-align: center;
-        }
-        #container {
-            position: relative;
-            width: 80%;
-            margin: auto;
-            max-width: 800px;
+            margin: 0;
+            padding: 0;
+            background-color: black;
+            color: white;
         }
         video {
             width: 100%;
-            border: 5px solid lime;
+            height: auto;
+            display: block;
         }
-        .overlay {
+        .info {
             position: absolute;
-            color: lime;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 5px;
-            font-size: 18px;
-            border-radius: 5px;
-        }
-        #time {
             top: 10px;
             left: 10px;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
         }
-        #speed {
+        .alert {
+            position: absolute;
             bottom: 10px;
             left: 10px;
-        }
-        #alert {
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 24px;
-            font-weight: bold;
-            background: red;
-            padding: 10px 20px;
+            background-color: red;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
             display: none;
-        }
-        #cameraSelect {
-            margin-top: 10px;
-            padding: 5px;
-            font-size: 16px;
         }
     </style>
 </head>
 <body>
-
-    <h1>CCTV 차량 감지 시스템</h1>
-
-    <select id="cameraSelect"></select>
-    
-    <div id="container">
-        <video id="video" autoplay></video>
-        <div id="time" class="overlay"></div>
-        <div id="speed" class="overlay">📡 속도: 위치 정보 가져오는 중...</div>
-        <div id="alert" class="overlay">🚨 차량 감지됨! 🚨</div>
+    <video id="video" autoplay></video>
+    <div class="info">
+        <p id="time"></p>
+        <p id="date"></p>
+        <p id="speed">속도: 0 km/h</p>
     </div>
+    <div class="alert" id="alert">차량 감지됨!</div>
 
     <script>
-        let model;
-        let currentStream;
-
-        // 카메라 시작 (사용자 선택)
-        async function startCamera(deviceId = null) {
-            try {
-                if (currentStream) {
-                    currentStream.getTracks().forEach(track => track.stop());
-                }
-
-                const constraints = { video: deviceId ? { deviceId: { exact: deviceId } } : true };
-                const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                currentStream = stream;
-
-                const videoElement = document.getElementById('video');
-                videoElement.srcObject = stream;
-                videoElement.onloadeddata = () => detectObjects();
-            } catch (err) {
-                alert("카메라 접근 불가: " + err);
-            }
-        }
-
-        // 카메라 목록 불러오기
-        async function loadCameraOptions() {
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            const videoDevices = devices.filter(device => device.kind === 'videoinput');
-
-            const selectElement = document.getElementById('cameraSelect');
-            selectElement.innerHTML = videoDevices.map((device, index) => 
-                `<option value="${device.deviceId}">${device.label || `카메라 ${index + 1}`}</option>`
-            ).join('');
-
-            selectElement.addEventListener('change', (event) => {
-                startCamera(event.target.value);
+        // WebRTC를 사용하여 비디오 스트림 가져오기 (USB 카메라 대체)
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                document.getElementById('video').srcObject = stream;
+            })
+            .catch(error => {
+                console.error('카메라에 접근할 수 없습니다:', error);
             });
 
-            if (videoDevices.length > 0) {
-                startCamera(videoDevices[0].deviceId);
-            }
-        }
-
-        // 날짜 및 시간 업데이트
-        function updateDateTime() {
+        // 현재 날짜 및 시간 업데이트
+        function updateTime() {
             const now = new Date();
-            document.getElementById('time').innerText = `📅 ${now.toLocaleDateString()} ${now.toLocaleTimeString()}`;
+            const date = now.toLocaleDateString();
+            const time = now.toLocaleTimeString();
+            document.getElementById('date').textContent = '날짜: ' + date;
+            document.getElementById('time').textContent = '시간: ' + time;
         }
 
-        // GPS 기반 속도 업데이트
-        function updateSpeed(position) {
-            if (position.coords.speed !== null) {
-                const speedKmh = (position.coords.speed * 3.6).toFixed(1); // m/s → km/h 변환
-                document.getElementById('speed').innerText = `🚗 속도: ${speedKmh} km/h`;
+        // GPS를 사용해 속도 업데이트
+        function updateSpeed() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(position => {
+                    const speed = position.coords.speed; // 속도 (m/s)
+                    if (speed !== null) {
+                        const speedKmh = (speed * 3.6).toFixed(1); // m/s를 km/h로 변환
+                        document.getElementById('speed').textContent = '속도: ' + speedKmh + ' km/h';
+                    }
+                }, error => {
+                    console.error('GPS 오류:', error);
+                });
             } else {
-                document.getElementById('speed').innerText = "📡 속도: 측정 불가";
+                console.log('GPS를 지원하지 않는 기기입니다.');
             }
         }
 
-        // GPS 위치 정보 가져오기
-        function getGPS() {
-            if ("geolocation" in navigator) {
-                navigator.geolocation.watchPosition(updateSpeed, error => {
-                    document.getElementById('speed').innerText = "📡 GPS 오류";
-                }, { enableHighAccuracy: true });
-            } else {
-                document.getElementById('speed').innerText = "📡 GPS 지원 안됨";
-            }
+        // 차량 감지 (간단한 예시로 5초마다 감지)
+        function detectVehicle() {
+            setTimeout(() => {
+                // 차량 감지 시 알림 표시
+                document.getElementById('alert').style.display = 'block';
+                setTimeout(() => {
+                    document.getElementById('alert').style.display = 'none';
+                }, 3000); // 3초 후 알림 사라짐
+            }, 5000); // 5초마다 차량 감지
+
+            setTimeout(detectVehicle, 5000); // 주기적으로 차량 감지 시도
         }
 
-        // 객체 감지 (TensorFlow COCO-SSD)
-        async function detectObjects() {
-            if (!model) {
-                model = await cocoSsd.load();
-            }
-
-            const videoElement = document.getElementById('video');
-            const predictions = await model.detect(videoElement);
-
-            let vehicleDetected = false;
-
-            predictions.forEach(prediction => {
-                const detectedObject = prediction.class;
-                if (["car", "bus", "motorcycle"].includes(detectedObject)) {
-                    vehicleDetected = true;
-                }
-            });
-
-            const alertBox = document.getElementById('alert');
-            if (vehicleDetected) {
-                alertBox.style.display = "block";
-                setTimeout(() => { alertBox.style.display = "none"; }, 3000);
-            }
-
-            requestAnimationFrame(detectObjects);
-        }
-
-        setInterval(updateDateTime, 1000);  // 1초마다 시간 갱신
-        setTimeout(getGPS, 500);           // 0.5초 후 GPS 시작
-        loadCameraOptions();               // 카메라 목록 불러오기
-
+        // 페이지가 로드되면
+        window.onload = () => {
+            updateTime();
+            setInterval(updateTime, 1000); // 1초마다 시간 업데이트
+            setInterval(updateSpeed, 1000); // 1초마다 GPS 속도 업데이트
+            detectVehicle(); // 차량 감지 시작
+        };
     </script>
-
 </body>
 </html>
